@@ -130,6 +130,7 @@ td.l{text-align:left}
 .ov[hidden]{display:none}
 .sheet{background:#0f1a2f;border:1px solid var(--line);border-radius:12px;width:100%;max-width:1020px;margin-block:auto;box-shadow:0 20px 60px #000a}
 .sheet.sm{max-width:610px}
+.sheet.lg{max-width:1180px}
 .sh-h{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line)}
 .sh-h h2{margin:0;font-size:15px;font-weight:800;letter-spacing:.04em}
 .sh-h .x{margin-left:auto;background:#ffffff14;border-radius:6px;width:30px;height:30px;font-size:16px;display:grid;place-items:center}
@@ -167,6 +168,18 @@ td.l{text-align:left}
 .chk-sec{background:#1e3a6d;color:#bae6fd;text-align:left;font-weight:800;font-size:11.5px;padding:7px 12px;letter-spacing:.08em}
 .chk-ok{width:26px;height:26px;border-radius:5px;background:#ffffff14;color:#fff;font-weight:800;display:inline-grid;place-items:center;cursor:pointer}
 .chk-ok.v{background:var(--green)} .chk-ok.x{background:var(--red)}
+
+/* Estilos del Escáner IA y Vista Previa */
+.scan-drop{border:2px dashed var(--purple);background:#7c3aed14;border-radius:10px;padding:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.scan-sum{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:#0b1426;border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin-bottom:10px;font-size:12px}
+.scan-tbl{min-width:860px}
+.scan-tbl td{padding:6px 5px}
+.scan-tbl input,.scan-tbl select{background:var(--field);border:1px solid var(--field-line);border-radius:5px;padding:5px 7px;font-size:11.5px;font-weight:600;width:100%}
+.scan-tbl select option{background:#fff;color:#111}
+.scan-badge{display:inline-block;padding:2px 7px;border-radius:5px;font-size:10px;font-weight:800}
+.scan-badge.ok{background:#1fa97126;color:#7bf1be;border:1px solid #1fa97166}
+.scan-badge.warn{background:#f3b72f26;color:#ffe1a0;border:1px solid #f3b72f66}
+.scan-badge.new{background:#7c3aed33;color:#ddd6fe;border:1px solid #7c3aed88}
 
 .lbl{background:#fff;color:#111;border-radius:8px;padding:14px;text-align:center;max-width:320px;margin:0 auto}
 .lbl .t{font-weight:800;font-size:15px} .lbl .s{font-size:11px;color:#444;margin-bottom:6px}
@@ -220,6 +233,7 @@ div[class*="netlify"], #netlify-badge {
     <label class="chk" title="Productos para degustación (vencen en 1 a 3 días)"><input type="checkbox" id="c-deg"> Degustación (≤3d)</label>
     <label class="chk"><input type="checkbox" id="c-low"> Bajo stock</label>
     <div class="sp">
+      <button class="btn purple" id="b-scan" title="Escanear hoja física (foto con IA) o formato Excel de Cámara 1"></button>
       <button class="btn cyan" id="b-imp" title="Importar producción o conteo diario desde Excel">Importar</button>
       <button class="btn green" id="b-xls" title="Abrir Checklist de Fechas Cortas, Degustación y Exportar Excel"></button>
       <button class="btn blue" id="b-cat"></button>
@@ -279,6 +293,35 @@ div[class*="netlify"], #netlify-badge {
       </div>
     </div>
     <div id="chk-b"></div>
+  </div>
+</div></div>
+
+<!-- MODAL ESCANEAR HOJA FÍSICA (IA GEMINI) O FORMATO EXCEL -->
+<div class="ov" id="m-scan" hidden><div class="sheet lg" role="dialog" aria-modal="true" aria-labelledby="t-scan">
+  <div class="sh-h"><h2 id="t-scan">ESCANEAR HOJA DE INVENTARIO (FOTO CON IA O EXCEL)</h2><button class="x" data-close aria-label="Cerrar">✕</button></div>
+  <div class="sh-b">
+    <div class="scan-drop">
+      <div style="flex:1 1 260px">
+        <b style="display:block;font-size:13px;margin-bottom:4px">1. Sube una foto clara de tu hoja física o tu formato Excel (.xlsx)</b>
+        <span class="occ">La IA leerá productos, lotes (LT), lotes base, fechas de vencimiento y cantidades para que los revises antes de guardar.</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input type="file" id="scan-file" accept="image/*,.xlsx,.xls" style="max-width:250px">
+        <select class="sel" id="scan-mode" style="min-width:210px">
+          <option value="conteo">Modo: Actualizar Conteo Físico</option>
+          <option value="ingreso">Modo: Sumar Producción del Día</option>
+        </select>
+        <button type="button" class="btn purple" id="b-run-scan">ANALIZAR HOJA</button>
+      </div>
+    </div>
+    <div id="scan-status" class="occ" style="margin-bottom:10px"></div>
+    <div id="scan-preview"></div>
+  </div>
+  <div class="sh-f">
+    <span class="err" id="scan-err" role="alert"></span>
+    <button type="button" class="btn ghost" id="b-add-scan-row" hidden>+ AGREGAR FILA</button>
+    <button type="button" class="btn ghost" data-close>CANCELAR</button>
+    <button type="button" class="btn green" id="b-save-scan" hidden>GUARDAR EN SUPABASE</button>
   </div>
 </div></div>
 
@@ -351,13 +394,14 @@ const IC={
  hash:'<path d="M5 9h14M5 15h14M10 3L8 21M16 3l-2 18"/>',
  file:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
  book:'<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/>',
+ camera:'<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>'
 };
 const ico=n=>'<svg class="i" viewBox="0 0 24 24" aria-hidden="true">'+IC[n]+'</svg>';
 
 /* ---------- Estado general ---------- */
 const S={arts:[],movs:[],q:'',cam:'',showPre:false,showJl:false,showDfv:false,onlyAct:true,onlyLow:false,onlyExp:false,onlyDeg:false,view:'table',
-  canWrite:true,uid:null,email:'',loaded:false,edit:null,tmpLotes:[],formUseJl:true,chkMarks:{}};
+  canWrite:true,uid:null,email:'',loaded:false,edit:null,tmpLotes:[],formUseJl:true,chkMarks:{},scanItems:[]};
 const num=v=>{const n=parseFloat(String(v).replace(',','.'));return isFinite(n)?n:0};
 const money=v=>num(v).toFixed(2);
 const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
@@ -696,7 +740,7 @@ function render(){
  if(!S.loaded){L.innerHTML='<div class="tw"><div class="empty"><b>Cargando productos…</b>Un momento, estamos sincronizando el stock de las cámaras.</div></div>';$('#count').textContent='';return}
  const rows=visible();
  if(!S.arts.length){
-  L.innerHTML='<div class="tw"><div class="empty"><b>Todavía no hay productos registrados</b>Pulsa CREAR o usa "Importar" para cargar tus yogures.</div></div>';$('#count').textContent='';return}
+  L.innerHTML='<div class="tw"><div class="empty"><b>Todavía no hay productos registrados</b>Pulsa CREAR o usa "Escanear Hoja" / "Importar" para cargar tus yogures.</div></div>';$('#count').textContent='';return}
  if(!rows.length){
   L.innerHTML='<div class="tw"><div class="empty"><b>Sin resultados</b>Prueba cambiando los filtros o buscando otro producto.</div></div>';$('#count').textContent='';return}
  const shown=rows.slice(0,350);
@@ -737,6 +781,7 @@ function initChrome(){
  $('#plant').innerHTML=ico('home')+' PLANTA DELA';
  $('#b-new').innerHTML=ico('plus')+' CREAR';
  $('#b-q').innerHTML=ico('search');
+ $('#b-scan').innerHTML=ico('camera')+' Escanear Hoja';
  $('#b-cat').innerHTML=ico('book')+' Catálogo';
  $('#b-xls').innerHTML=ico('file')+' Checklist / Excel';
  $('#b-cod').innerHTML=ico('bar')+' Códigos';
@@ -753,6 +798,7 @@ function initChrome(){
  $('#c-low').onchange=e=>{S.onlyLow=e.target.checked;render()};
  $('#b-cat').onclick=()=>{S.view=S.view==='cards'?'table':'cards';$('#b-cat').innerHTML=ico('book')+(S.view==='cards'?' Tabla':' Catálogo');render()};
  $('#b-new').onclick=()=>openForm(null);
+ $('#b-scan').onclick=openScanModal;
  $('#b-imp').onclick=openImportModal;
  $('#b-xls').onclick=()=>openChecklistModal('short');
  $('#b-cod').onclick=openLabels;
@@ -1290,129 +1336,177 @@ $('#b-dl-full').onclick=()=>{
  toast('Kardex completo descargado');
 };
 
-/* ---------- Importar Producción del Día desde Excel ---------- */
-function openImportModal(){
- $('#imp-err').textContent='';
- $('#imp-res').innerHTML='Selecciona un archivo Excel para previsualizar o procesar.';
- $('#imp-file').value='';
- openM('m-imp');
+/* ---------- Escáner Inteligente de Hoja Física (IA Gemini) y Formato Excel ---------- */
+function openScanModal(){
+ if(!S.canWrite){toast('Tu acceso es de solo lectura');return}
+ S.scanItems=[];
+ $('#scan-err').textContent='';
+ $('#scan-file').value='';
+ $('#scan-status').innerHTML='Selecciona una <b>foto</b> de tu hoja impresa (desde celular o PC) o tu archivo <b>Excel</b> y pulsa <b>ANALIZAR HOJA</b>.';
+ $('#scan-preview').innerHTML='';
+ $('#b-save-scan').hidden=true;
+ $('#b-add-scan-row').hidden=true;
+ openM('m-scan');
 }
-$('#b-tpl').onclick=()=>{
- const tpl=[
-  {'Producto':'YOGURT FRUTADO ARANDANO','Presentación':'1 LT','Cantidad':18,'Lote':'1811','Lote Base':'1611','Ubicación':'1-E1P2','Nota':'Producción del día'},
-  {'Producto':'YOGURT STEVIA ARANDANO','Presentación':'1 LT','Cantidad':28,'Lote':'1811','Lote Base':'1611','Ubicación':'1-E4P1','Nota':'Producción del día'},
-  {'Producto':'YOGURT GRIEGO NATURAL','Presentación':'800 G','Cantidad':15,'Lote':'1811','Lote Base':'','Ubicación':'2-E3P2','Nota':'Producción del día'}
- ];
- const wb=XLSX.utils.book_new();
- XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(tpl),'Produccion_Dia');
- XLSX.writeFile(wb,'plantilla-produccion-yogures.xlsx');
-};
 
-$('#b-run-imp').onclick=async()=>{
- const f=$('#imp-file').files[0],err=$('#imp-err');err.textContent='';
- if(!f){err.textContent='Elige primero un archivo Excel (.xlsx o .csv).';return}
- const btn=$('#b-run-imp');btn.disabled=true;btn.textContent='Procesando…';
- try{
-  const buf=await f.arrayBuffer();
-  const wb=XLSX.read(buf,{type:'array'});
-  const sheetName=wb.SheetNames.find(n=>/stock|produccion|movimientos|por dia/i.test(n))||wb.SheetNames[0];
-  const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
-  if(!rows.length){err.textContent='El archivo está vacío.';btn.disabled=false;btn.textContent='PROCESAR INGRESO';return}
-  let actualizados=0;
-  for(const r of rows){
-   const nom=String(r['Producto']||r['Nombre']||r['Nombre del Producto']||'').trim();
-   const tam=String(r['Presentación']||r['Presentacion']||r['Tamaño']||'').trim();
-   const cant=num(r['Cantidad']??r['Cant.']??r['Cant. Lote']??r['Stock']??0);
-   if(!nom||!(cant>0))continue;
-   const lt=String(r['Lote']||r['Lote Prod. (LT)']||todayISO().slice(8,10)+todayISO().slice(5,7)).trim().toUpperCase();
-   const jl=String(r['Lote Base']||r['Lote Jalea (SKU)']||'').trim().toUpperCase();
-   const ubic=String(r['Ubicación']||r['Ubicación General']||r['Cámara']||'').trim().toUpperCase();
-   const candidatos=S.arts.filter(a=>norm(a.nombre)===norm(nom));
-   let art=tam?candidatos.find(a=>norm(a.tamano)===norm(tam)):candidatos[0];
-   if(!art&&candidatos.length)art=candidatos[0];
-   if(!art){
-    const cod=nextCode();
-    art={codigo:cod,nombre:nom,categoria:'YOGURT',um:'UNIDAD',proveedor:'PLANTA DELA',marca:'DELA',modelo:'YOGURT',tamano:tam||'1 LT',pc:0,pm:0,pmec:0,pp:10,ubic:ubic||'1-E1P1',stock:0,resTotal:0,stockMin:0,stockSeg:0,lotes:[],desc:'TVU: '+defaultTVU(nom)+' días',img:'',estado:'Activo'};
-   }
-   const tvu=extractTVU(art);
-   const fv=r['FV']||r['Fecha Vencimiento (FV)']||calcFvFromLt(lt,tvu);
-   const lts=(art.lotes&&art.lotes.length)?art.lotes.map(x=>({...x})):[];
-   const exIdx=lts.findIndex(x=>x.lt===lt&&x.jl===jl);
-   if(exIdx>=0)lts[exIdx].q=num(lts[exIdx].q)+cant;
-   else lts.push({lt,jl,fv,q:cant,r:0});
-   const antes=num(art.stock);
-   const sum=summarizeLotes(lts,0);
-   await saveArt({...art,ubic:ubic||art.ubic,lotes:sum.lotes,stock:sum.stock,resTotal:sum.resTotal,vence:sum.vence});
-   await logMov(art,'entrada',cant,antes,sum.stock,'[Importación Excel LT:'+lt+'] '+(r['Nota']||'Producción del día'));
-   actualizados++;
+function expandAbbr(txt){
+ return norm(txt)
+  .replace(/\bfrut\.?\b/g,'frutado')
+  .replace(/\bstv\.?\b/g,'stevia')
+  .replace(/\bb\/a\b/g,'bajo azucar')
+  .replace(/\bgrg\.?\b/g,'griego')
+  .replace(/\bkfr\.?\b/g,'kefir')
+  .replace(/\bkds\.?\b/g,'kids')
+  .replace(/\bdgo\.?\b/g,'dela go')
+  .replace(/\b1000\s*ml\b/g,'1 lt')
+  .replace(/\b1\s*l\b/g,'1 lt')
+  .replace(/\b500\b/g,'500 ml')
+  .replace(/\b250\b/g,'250 ml')
+  .replace(/\b180\b/g,'180 ml')
+  .replace(/\b800\b/g,'800 g');
+}
+
+function matchProductoDELA(rawName,rawPres,rawCat){
+ const fullQuery=expandAbbr([rawName,rawCat,rawPres].filter(Boolean).join(' '));
+ const presQuery=expandAbbr(rawPres||'');
+ const qTokens=fullQuery.split(/[^a-z0-9]+/).filter(t=>t.length>1&&t!=='yogurt'&&t!=='dela');
+ if(!qTokens.length&&!rawName)return '';
+ let bestCode='',bestScore=0;
+ S.arts.forEach(a=>{
+  const candText=expandAbbr([a.nombre,a.modelo,a.tamano].filter(Boolean).join(' '));
+  const candPres=expandAbbr(a.tamano||'');
+  let score=0;
+  qTokens.forEach(tok=>{
+   if(candText.includes(tok))score+=3;
+  });
+  if(presQuery&&candPres&&(candPres.includes(presQuery)||presQuery.includes(candPres)))score+=4;
+  if(a.estado==='Activo')score+=1;
+  if(score>bestScore){bestScore=score;bestCode=a.codigo;}
+ });
+ return bestScore>=4?bestCode:'';
+}
+
+function normalizeDateFlex(v){
+ if(!v)return '';
+ if(v instanceof Date&&!isNaN(v)){
+  const p=n=>String(n).padStart(2,'0');
+  return v.getFullYear()+'-'+p(v.getMonth()+1)+'-'+p(v.getDate());
+ }
+ const s=String(v).trim();
+ if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+ const m=/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?$/.exec(s);
+ if(m){
+  const dd=m[1].padStart(2,'0'),mm=m[2].padStart(2,'0');
+  let yy=m[3]?m[3]:String(new Date().getFullYear());
+  if(yy.length===2)yy='20'+yy;
+  return yy+'-'+mm+'-'+dd;
+ }
+ return '';
+}
+
+function compressImageForAI(file){
+ return new Promise((resolve,reject)=>{
+  const fr=new FileReader();
+  fr.onerror=()=>reject(new Error('No se pudo leer la imagen'));
+  fr.onload=()=>{
+   const im=new Image();
+   im.onerror=()=>reject(new Error('Formato de imagen no válido'));
+   im.onload=()=>{
+    const maxDim=1600;
+    let w=im.width,h=im.height;
+    if(w>maxDim||h>maxDim){
+     const scale=Math.min(maxDim/w,maxDim/h);
+     w=Math.round(w*scale);h=Math.round(h*scale);
+    }
+    const cv=document.createElement('canvas');
+    cv.width=w;cv.height=h;
+    const ctx=cv.getContext('2d');
+    ctx.fillStyle='#ffffff';
+    ctx.fillRect(0,0,w,h);
+    ctx.drawImage(im,0,0,w,h);
+    const dataUrl=cv.toDataURL('image/jpeg',0.85);
+    resolve({dataUrl,base64:dataUrl.split(',')[1],mimeType:'image/jpeg'});
+   };
+   im.src=fr.result;
+  };
+  fr.readAsDataURL(file);
+ });
+}
+
+function parseExcelCameraSheet(buf){
+ const wb=XLSX.read(buf,{type:'array',cellDates:true});
+ const ws=wb.Sheets[wb.SheetNames[0]];
+ const matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+ const extracted=[];
+ let curSec='';
+ matrix.forEach(row=>{
+  const cells=row.map(c=>String(c==null?'':c).trim());
+  const nonEmpty=cells.filter(Boolean);
+  if(!nonEmpty.length)return;
+  if(nonEmpty.length===1&&/^(c\/\s*az|kids|b\/a|dela\s*go|kefir|stevia|griego|queso|por\s*empaq|insumo)/i.test(norm(nonEmpty[0]))){
+   curSec=nonEmpty[0];return;
   }
-  closeM();toast('Se importaron '+actualizados+' registros de producción');
- }catch(ex){
-  err.textContent='No se pudo leer el archivo: '+(ex.message||'formato inválido');
- }
- btn.disabled=false;btn.textContent='PROCESAR INGRESO';
-};
-
-/* ---------- Módulo de Usuarios ---------- */
-function openUsersModal(){
- $('#u-err').textContent='';
- const ops=[...new Set([S.email].concat(S.movs.map(m=>m.usuario)).filter(Boolean))];
- $('#usr-b').innerHTML=
-  '<div class="occ" style="margin-bottom:14px"><b>Sesión actual iniciada:</b> <span class="tag">'+esc(S.email||'Administrador')+'</span><br>'+
-  '<b>Usuarios registrados con actividad en cámara:</b><br>'+ops.map(u=>'<span class="tag">'+esc(u)+'</span>').join(' ')+'</div>'+
-  '<div class="fg">'+
-   '<div class="fld c12"><label for="u-mail">Correo electrónico del nuevo usuario (Operario / Jefe):</label><input id="u-mail" type="email" placeholder="operario@dela.com.pe" required></div>'+
-   '<div class="fld c12"><label for="u-pass">Contraseña de acceso (mínimo 6 caracteres):</label><input id="u-pass" type="password" placeholder="••••••" required></div>'+
-   '<div class="occ c12" style="grid-column:span 12">Al crear la cuenta, el usuario quedará habilitado en Supabase para ingresar desde <b>login.html</b>.</div>'+
-  '</div>';
- openM('m-usr');
-}
-$('#fusr').addEventListener('submit',async e=>{
- e.preventDefault();const err=$('#u-err');err.textContent='';
- const email=$('#u-mail').value.trim(),password=$('#u-pass').value;
- if(!email||password.length<6){err.textContent='Ingresa un correo válido y una clave de al menos 6 caracteres.';return}
- const btn=$('#u-save');btn.disabled=true;
- try{
-  const {error}=await db.auth.signUp({email,password});
-  if(error)throw error;
-  toast('Usuario '+email+' creado exitosamente');
-  closeM();
- }catch(ex){
-  err.textContent='Error: '+(ex.message||'no se pudo registrar el usuario');
- }
- btn.disabled=false;
-});
-
-/* ---------- Código de Barras ---------- */
-const C39={'0':'000110100','1':'100100001','2':'001100001','3':'101100000','4':'00010001','5':'100110000','6':'001110000','7':'000100101','8':'100100100','9':'001100100','A':'100001001','B':'001001001','C':'101001000','D':'000011001','E':'100011000','F':'001011000','G':'000001101','H':'100001100','I':'001001100','J':'000011100','K':'100000011','L':'001000011','M':'101000010','N':'000010011','O':'100010010','P':'001010010','Q':'000000111','R':'100000110','S':'001000110','T':'000010110','U':'110000001','V':'011000001','W':'111000000','X':'010010001','Y':'110010000','Z':'011010000','-':'010000101','.':'110000100',' ':'011000100','*':'010010100'};
-function barSVG(text){
- const t='*'+String(text).toUpperCase().replace(/[^0-9A-Z\-. ]/g,'')+'*';let x=0,bars='';
- for(const ch of t){const p=C39[ch];if(!p)continue;for(let i=0;i<9;i++){const w=p[i]==='1'?3:1;if(i%2===0)bars+='<rect x="'+x+'" y="0" width="'+w+'" height="60" fill="#111"/>';x+=w}x+=1}
- return '<svg viewBox="0 0 '+x+' 60" preserveAspectRatio="none" role="img" aria-label="Código de barras '+esc(text)+'">'+bars+'</svg>';
-}
-const lblHTML=a=>'<div class="lbl"><div class="t">'+esc(a.nombre)+'</div><div class="s">'+esc([a.modelo,a.tamano].filter(Boolean).join(' · '))+' · '+esc(a.ubic||'sin ubicar')+'</div>'+barSVG(a.codigo)+'<div class="c">'+esc(a.codigo)+'</div></div>';
-function openBarcode(a){$('#bar-b').innerHTML=lblHTML(a);openM('m-bar')}
-function openLabels(){
- const rows=visible();$('#t-lbls').textContent='CÓDIGOS · '+rows.length+' ETIQUETAS';
- $('#lbls-b').innerHTML=rows.length?rows.slice(0,120).map(lblHTML).join(''):'<div class="empty" style="grid-column:1/-1"><b>No hay productos para mostrar</b></div>';
- openM('m-lbls');
+  if(/^(producto|descripcion|item|ubicacion)\b/i.test(norm(cells[0]))||/^(producto|descripcion)\b/i.test(norm(cells[1]||'')))return;
+  // Detectar filas de productos con cantidad numérica en la plantilla de cámara o tabla estándar
+  for(let i=0;i<cells.length;i++){
+   const c=cells[i];
+   if(!c||/^\d+(\.\d+)?$/.test(c)||/^\d{1,2}[\/\-]\d{1,2}/.test(c))continue;
+   if(c.length>=3&&/[a-zA-Z]{3,}/.test(c)){
+    // Buscar valores numéricos y fechas/lotes hacia la derecha en la misma fila
+    let cant=0,lt='',jl='',fv='',ubic='';
+    if(i>0&&/^\d-\w+/.test(cells[i-1]))ubic=cells[i-1].toUpperCase();
+    for(let j=i+1;j<cells.length;j++){
+     const v=cells[j];
+     if(!v)continue;
+     if(!ubic&&/^\d-\w+/.test(v)){ubic=v.toUpperCase();continue}
+     const dNorm=normalizeDateFlex(row[j]);
+     if(dNorm&&!fv){fv=dNorm;continue}
+     if(/^\d{4}$/.test(v)&&!lt){lt=v;continue}
+     if(/^\d{4}$/.test(v)&&lt&&!jl){jl=v;continue}
+     if(/^\d+(\.\d+)?$/.test(v)&&num(v)>0&&!cant){cant=num(v);continue}
+    }
+    if(cant>0||lt||fv){
+     extracted.push({producto:c,presentacion:'',categoria:curSec,cantidad:cant,lote:lt,lote_base:jl,vence:fv,ubicacion:ubic,alerta:''});
+     break;
+    }
+   }
+  }
+ });
+ return extracted;
 }
 
-async function boot(){
- initChrome();render();
- if(!db){
-  $('#list').innerHTML='<div class="tw"><div class="empty"><b>Falta conectar Supabase</b></div></div>';
+function buildScanRowObj(raw){
+ const rawName=String(raw.producto||raw.nombre||raw.item||raw.descripcion||'').trim();
+ const rawPres=String(raw.presentacion||raw.tamano||raw.formato||'').trim();
+ const rawCat=String(raw.categoria||raw.linea||raw.seccion||'').trim();
+ const code=matchProductoDELA(rawName,rawPres,rawCat);
+ const art=S.arts.find(a=>a.codigo===code);
+ const lt=String(raw.lote||raw.lt||'').trim().toUpperCase();
+ const sinBase=art?/queso|leche|manjar|por empaquetar/i.test(art.nombre):/queso|leche|manjar|por empaquetar/i.test(rawName);
+ const jl=sinBase?'':String(raw.lote_base||raw.loteBase||raw.jl||'').trim().toUpperCase();
+ const tvu=art?extractTVU(art):defaultTVU(rawName);
+ let fv=normalizeDateFlex(raw.vence||raw.fv||raw.fecha_vencimiento||'');
+ if(!fv&&lt)fv=calcFvFromLt(lt,tvu);
+ return {
+  rawLabel:[rawName,rawPres].filter(Boolean).join(' · ')||'Fila manual',
+  codigo:code,
+  nuevoNombre:rawName||'YOGURT NUEVO',
+  nuevoTamano:rawPres||'1 LT',
+  ubic:(String(raw.ubicacion||raw.ubic||'').trim()||(art?art.ubic:'1-E1P1')).toUpperCase(),
+  lt,
+  jl,
+  fv,
+  cant:Math.max(0,num(raw.cantidad??raw.cant??raw.stock??0)),
+  alerta:String(raw.alerta||raw.nota||raw.observacion||'').trim()
+ };
+}
+
+function renderScanPreview(){
+ const box=$('#scan-preview');
+ if(!S.scanItems.length){
+  box.innerHTML='<div class="tw"><div class="empty"><b>Sin registros detectados</b>Sube otra foto más nítida o agrega filas manualmente.</div></div>';
+  $('#b-save-scan').hidden=true;
   return;
  }
- if(!(await exigirSesion()))return;
- $('#av').title='Usuario activo: '+S.email;
- const arts=await listarProductos();if(arts)S.arts=arts;
- const movs=await listarMovimientos();if(movs)S.movs=movs;
- S.loaded=true;render();
- await bloquearQuesosInicial();
- escucharCambios(refrescar);
-}
-boot();
-</script>
-</body>
-</html>
+ const artOpts=['<option value="">+ CREAR PRODUCTO NUEVO</option>'].concat(
+  sortArts(S.arts).map(a=>'<option value="'+esc(a.codigo)+'">'+esc(a.nombre)+(a.tamano?' ('+esc(a.tamano)+
