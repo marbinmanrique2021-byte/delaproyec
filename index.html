@@ -1509,4 +1509,295 @@ function renderScanPreview(){
   return;
  }
  const artOpts=['<option value="">+ CREAR PRODUCTO NUEVO</option>'].concat(
-  sortArts(S.arts).map(a=>'<option value="'+esc(a.codigo)+'">'+esc(a.nombre)+(a.tamano?' ('+esc(a.tamano)+
+  sortArts(S.arts).map(a=>'<option value="'+esc(a.codigo)+'">'+esc(a.nombre)+(a.tamano?' ('+esc(a.tamano)+')':'')+' ['+esc(a.ubic||'S/U')+']</option>')
+ ).join('');
+ const totalU=S.scanItems.reduce((s,x)=>s+num(x.cant),0);
+ const sinMatch=S.scanItems.filter(x=>!x.codigo).length;
+ let html='<div class="scan-sum">'+
+  '<span><b>'+S.scanItems.length+'</b> filas detectadas</span>'+
+  '<span>·</span><span><b>'+totalU+'</b> unidades totales</span>'+
+  (sinMatch?'<span>·</span><span style="color:#ffe1a0"><b>'+sinMatch+'</b> por vincular o crear</span>':'<span>·</span><span style="color:#7bf1be">Todos vinculados al catálogo DELA</span>')+
+ '</div>';
+ html+='<div class="tw"><table class="scan-tbl"><thead><tr>'+
+  '<th>TEXTO EN HOJA</th><th style="min-width:230px">PRODUCTO EN SISTEMA DELA</th><th style="width:92px">UBIC.</th><th style="width:86px">LOTE (LT)</th><th style="width:92px">LOTE BASE</th><th style="width:132px">VENCE (FV)</th><th style="width:82px">CANT.</th><th>ESTADO</th><th style="width:38px"></th>'+
+ '</tr></thead><tbody>';
+ S.scanItems.forEach((it,i)=>{
+  const badge=it.alerta?'<span class="scan-badge warn" title="'+esc(it.alerta)+'">⚠ '+esc(it.alerta.slice(0,22))+'</span>':(!it.codigo?'<span class="scan-badge new">+ NUEVO</span>':'<span class="scan-badge ok">✓ LISTO</span>');
+  html+='<tr data-sidx="'+i+'">'+
+   '<td class="l"><span class="sm" style="margin:0;color:#cfdcf3">'+esc(it.rawLabel)+'</span>'+
+    (!it.codigo?'<input type="text" data-sf="nuevoNombre" value="'+esc(it.nuevoNombre)+'" placeholder="Nombre nuevo" style="margin-top:4px">':'')+
+   '</td>'+
+   '<td><select data-sf="codigo">'+artOpts.replace('value="'+esc(it.codigo)+'"','value="'+esc(it.codigo)+'" selected')+'</select></td>'+
+   '<td><input type="text" data-sf="ubic" value="'+esc(it.ubic)+'" placeholder="1-E1P2"></td>'+
+   '<td><input type="text" data-sf="lt" value="'+esc(it.lt)+'" placeholder="1610"></td>'+
+   '<td><input type="text" data-sf="jl" value="'+esc(it.jl)+'" placeholder="1510"></td>'+
+   '<td><input type="date" data-sf="fv" value="'+esc(it.fv)+'"></td>'+
+   '<td><input type="number" min="0" step="any" data-sf="cant" value="'+num(it.cant)+'"></td>'+
+   '<td>'+badge+'</td>'+
+   '<td><button type="button" class="del-lt" data-del-scan="'+i+'" title="Quitar fila">✕</button></td>'+
+  '</tr>';
+ });
+ html+='</tbody></table></div>';
+ box.innerHTML=html;
+ $('#b-save-scan').hidden=false;
+ $('#b-add-scan-row').hidden=false;
+}
+
+document.addEventListener('input',e=>{
+ const tr=e.target.closest('tr[data-sidx]');
+ if(!tr)return;
+ const idx=+tr.dataset.sidx,f=e.target.dataset.sf;
+ if(!S.scanItems[idx]||!f)return;
+ S.scanItems[idx][f]=f==='cant'?num(e.target.value):e.target.value;
+ if(f==='lt'){
+  const art=S.arts.find(a=>a.codigo===S.scanItems[idx].codigo);
+  const tvu=art?extractTVU(art):defaultTVU(S.scanItems[idx].nuevoNombre);
+  const autoFv=calcFvFromLt(e.target.value,tvu);
+  if(autoFv){
+   S.scanItems[idx].fv=autoFv;
+   const fvEl=tr.querySelector('[data-sf="fv"]');
+   if(fvEl)fvEl.value=autoFv;
+  }
+ }
+ if(f==='cant'){
+  const totalU=S.scanItems.reduce((s,x)=>s+num(x.cant),0);
+  const sumB=$('#scan-preview .scan-sum b:nth-of-type(2)');
+  if(sumB)sumB.textContent=totalU;
+ }
+});
+
+document.addEventListener('change',e=>{
+ const tr=e.target.closest('tr[data-sidx]');
+ if(!tr||e.target.dataset.sf!=='codigo')return;
+ const idx=+tr.dataset.sidx;
+ const code=e.target.value;
+ S.scanItems[idx].codigo=code;
+ const art=S.arts.find(a=>a.codigo===code);
+ if(art){
+  if(art.ubic)S.scanItems[idx].ubic=art.ubic;
+  if(/queso|leche|manjar|por empaquetar/i.test(art.nombre))S.scanItems[idx].jl='';
+  if(S.scanItems[idx].lt&&!S.scanItems[idx].fv){
+   S.scanItems[idx].fv=calcFvFromLt(S.scanItems[idx].lt,extractTVU(art));
+  }
+ }
+ renderScanPreview();
+});
+
+document.addEventListener('click',e=>{
+ const del=e.target.closest('[data-del-scan]');
+ if(del){
+  S.scanItems.splice(+del.dataset.delScan,1);
+  renderScanPreview();return;
+ }
+ if(e.target.id==='b-add-scan-row'){
+  S.scanItems.push(buildScanRowObj({producto:'Fila agregada manualmente',cantidad:0,ubicacion:'1-E1P1'}));
+  renderScanPreview();
+ }
+});
+
+$('#b-run-scan').onclick=async()=>{
+ const f=$('#scan-file').files[0];
+ const err=$('#scan-err'),st=$('#scan-status');
+ err.textContent='';
+ if(!f){err.textContent='Selecciona primero una foto de la hoja o un archivo Excel.';return}
+ const btn=$('#b-run-scan');
+ btn.disabled=true;btn.textContent='ANALIZANDO…';
+ st.innerHTML='Procesando archivo con IA… espera unos segundos.';
+ try{
+  let rawRows=[];
+  if(f.type.startsWith('image/')||/\.(jpg|jpeg|png|webp|heic)$/i.test(f.name)){
+   const img=await compressImageForAI(f);
+   const res=await fetch('/.netlify/functions/escanear-hoja',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({imageBase64:img.base64,mimeType:img.mimeType,image:img.dataUrl})
+   });
+   const data=await res.json().catch(()=>({}));
+   if(!res.ok)throw new Error(data.error||data.message||('Error del servidor ('+res.status+')'));
+   rawRows=Array.isArray(data)?data:(data.items||data.productos||data.data||[]);
+  }else{
+   const buf=await f.arrayBuffer();
+   rawRows=parseExcelCameraSheet(buf);
+  }
+  S.scanItems=(rawRows||[]).map(buildScanRowObj);
+  st.innerHTML='Revisa los datos extraídos en la tabla de abajo. Puedes corregir cualquier cantidad, lote o fecha antes de guardar.';
+  renderScanPreview();
+ }catch(ex){
+  err.textContent='No se pudo analizar la hoja: '+(ex.message||'verifica tu conexión');
+  st.innerHTML='Ocurrió un problema al leer el archivo. Intenta con una foto más iluminada o revisa la función en Netlify.';
+ }
+ btn.disabled=false;btn.textContent='ANALIZAR HOJA';
+};
+
+$('#b-save-scan').onclick=async()=>{
+ const err=$('#scan-err');err.textContent='';
+ const valid=S.scanItems.filter(x=>num(x.cant)>0||x.lt||x.fv);
+ if(!valid.length){err.textContent='No hay filas válidas con cantidad o lote para guardar.';return}
+ const mode=$('#scan-mode').value;
+ const btn=$('#b-save-scan');
+ btn.disabled=true;btn.textContent='GUARDANDO…';
+ try{
+  let guardados=0;
+  for(const it of valid){
+   let art=S.arts.find(a=>a.codigo===it.codigo);
+   if(!art){
+    const cod=nextCode();
+    const nom=String(it.nuevoNombre||it.rawLabel||'YOGURT NUEVO').trim().toUpperCase();
+    art={codigo:cod,nombre:nom,categoria:'YOGURT',um:'UNIDAD',proveedor:'PLANTA DELA',marca:'DELA',modelo:'YOGURT',tamano:it.nuevoTamano||'1 LT',pc:0,pm:0,pmec:0,pp:10,ubic:it.ubic||'1-E1P1',stock:0,resTotal:0,stockMin:0,stockSeg:0,lotes:[],desc:'TVU: '+defaultTVU(nom)+' días',img:'',estado:'Activo'};
+   }
+   const lt=String(it.lt||'').trim().toUpperCase()||(todayISO().slice(8,10)+todayISO().slice(5,7));
+   const jl=String(it.jl||'').trim().toUpperCase();
+   const fv=it.fv||calcFvFromLt(lt,extractTVU(art));
+   const q=Math.max(0,num(it.cant));
+   const antes=num(art.stock);
+   const lts=(art.lotes&&art.lotes.length)?art.lotes.map(x=>({...x})):[];
+   const exIdx=lts.findIndex(x=>x.lt===lt&&x.jl===jl);
+   if(exIdx>=0){
+    lts[exIdx].q=mode==='conteo'?q:(num(lts[exIdx].q)+q);
+    if(fv)lts[exIdx].fv=fv;
+   }else if(q>0){
+    lts.push({lt,jl,fv,q,r:0});
+   }
+   const sum=summarizeLotes(lts.filter(x=>num(x.q)>0||num(x.r)>0),0);
+   await saveArt({...art,ubic:it.ubic||art.ubic,lotes:sum.lotes,stock:sum.stock,resTotal:sum.resTotal,vence:sum.vence});
+   const delta=sum.stock-antes;
+   if(delta!==0||q>0){
+    const tipoMov=mode==='conteo'?'ajuste':'entrada';
+    await logMov(art,tipoMov,delta,antes,sum.stock,'[Escáner Hoja LT:'+lt+(jl?' Base:'+jl:'')+'] '+(mode==='conteo'?'Conteo físico':'Ingreso producción'));
+   }
+   guardados++;
+  }
+  closeM();
+  toast('¡Listo! Se guardaron '+guardados+' registros en Supabase');
+ }catch(ex){
+  err.textContent='Error al guardar en Supabase: '+(ex.message||'intenta nuevamente');
+ }
+ btn.disabled=false;btn.textContent='GUARDAR EN SUPABASE';
+};
+
+/* ---------- Importar Producción del Día desde Excel ---------- */
+function openImportModal(){
+ $('#imp-err').textContent='';
+ $('#imp-res').innerHTML='Selecciona un archivo Excel para previsualizar o procesar.';
+ $('#imp-file').value='';
+ openM('m-imp');
+}
+$('#b-tpl').onclick=()=>{
+ const tpl=[
+  {'Producto':'YOGURT FRUTADO ARANDANO','Presentación':'1 LT','Cantidad':18,'Lote':'1811','Lote Base':'1611','Ubicación':'1-E1P2','Nota':'Producción del día'},
+  {'Producto':'YOGURT STEVIA ARANDANO','Presentación':'1 LT','Cantidad':28,'Lote':'1811','Lote Base':'1611','Ubicación':'1-E4P1','Nota':'Producción del día'},
+  {'Producto':'YOGURT GRIEGO NATURAL','Presentación':'800 G','Cantidad':15,'Lote':'1811','Lote Base':'','Ubicación':'2-E3P2','Nota':'Producción del día'}
+ ];
+ const wb=XLSX.utils.book_new();
+ XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(tpl),'Produccion_Dia');
+ XLSX.writeFile(wb,'plantilla-produccion-yogures.xlsx');
+};
+
+$('#b-run-imp').onclick=async()=>{
+ const f=$('#imp-file').files[0],err=$('#imp-err');err.textContent='';
+ if(!f){err.textContent='Elige primero un archivo Excel (.xlsx o .csv).';return}
+ const btn=$('#b-run-imp');btn.disabled=true;btn.textContent='Procesando…';
+ try{
+  const buf=await f.arrayBuffer();
+  const wb=XLSX.read(buf,{type:'array'});
+  const sheetName=wb.SheetNames.find(n=>/stock|produccion|movimientos|por dia/i.test(n))||wb.SheetNames[0];
+  const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
+  if(!rows.length){err.textContent='El archivo está vacío.';btn.disabled=false;btn.textContent='PROCESAR INGRESO';return}
+  let actualizados=0;
+  for(const r of rows){
+   const nom=String(r['Producto']||r['Nombre']||r['Nombre del Producto']||'').trim();
+   const tam=String(r['Presentación']||r['Presentacion']||r['Tamaño']||'').trim();
+   const cant=num(r['Cantidad']??r['Cant.']??r['Cant. Lote']??r['Stock']??0);
+   if(!nom||!(cant>0))continue;
+   const lt=String(r['Lote']||r['Lote Prod. (LT)']||todayISO().slice(8,10)+todayISO().slice(5,7)).trim().toUpperCase();
+   const jl=String(r['Lote Base']||r['Lote Jalea (SKU)']||'').trim().toUpperCase();
+   const ubic=String(r['Ubicación']||r['Ubicación General']||r['Cámara']||'').trim().toUpperCase();
+   const candidatos=S.arts.filter(a=>norm(a.nombre)===norm(nom));
+   let art=tam?candidatos.find(a=>norm(a.tamano)===norm(tam)):candidatos[0];
+   if(!art&&candidatos.length)art=candidatos[0];
+   if(!art){
+    const cod=nextCode();
+    art={codigo:cod,nombre:nom,categoria:'YOGURT',um:'UNIDAD',proveedor:'PLANTA DELA',marca:'DELA',modelo:'YOGURT',tamano:tam||'1 LT',pc:0,pm:0,pmec:0,pp:10,ubic:ubic||'1-E1P1',stock:0,resTotal:0,stockMin:0,stockSeg:0,lotes:[],desc:'TVU: '+defaultTVU(nom)+' días',img:'',estado:'Activo'};
+   }
+   const tvu=extractTVU(art);
+   const fv=r['FV']||r['Fecha Vencimiento (FV)']||calcFvFromLt(lt,tvu);
+   const lts=(art.lotes&&art.lotes.length)?art.lotes.map(x=>({...x})):[];
+   const exIdx=lts.findIndex(x=>x.lt===lt&&x.jl===jl);
+   if(exIdx>=0)lts[exIdx].q=num(lts[exIdx].q)+cant;
+   else lts.push({lt,jl,fv,q:cant,r:0});
+   const antes=num(art.stock);
+   const sum=summarizeLotes(lts,0);
+   await saveArt({...art,ubic:ubic||art.ubic,lotes:sum.lotes,stock:sum.stock,resTotal:sum.resTotal,vence:sum.vence});
+   await logMov(art,'entrada',cant,antes,sum.stock,'[Importación Excel LT:'+lt+'] '+(r['Nota']||'Producción del día'));
+   actualizados++;
+  }
+  closeM();toast('Se importaron '+actualizados+' registros de producción');
+ }catch(ex){
+  err.textContent='No se pudo leer el archivo: '+(ex.message||'formato inválido');
+ }
+ btn.disabled=false;btn.textContent='PROCESAR INGRESO';
+};
+
+/* ---------- Módulo de Usuarios ---------- */
+function openUsersModal(){
+ $('#u-err').textContent='';
+ const ops=[...new Set([S.email].concat(S.movs.map(m=>m.usuario)).filter(Boolean))];
+ $('#usr-b').innerHTML=
+  '<div class="occ" style="margin-bottom:14px"><b>Sesión actual iniciada:</b> <span class="tag">'+esc(S.email||'Administrador')+'</span><br>'+
+  '<b>Usuarios registrados con actividad en cámara:</b><br>'+ops.map(u=>'<span class="tag">'+esc(u)+'</span>').join(' ')+'</div>'+
+  '<div class="fg">'+
+   '<div class="fld c12"><label for="u-mail">Correo electrónico del nuevo usuario (Operario / Jefe):</label><input id="u-mail" type="email" placeholder="operario@dela.com.pe" required></div>'+
+   '<div class="fld c12"><label for="u-pass">Contraseña de acceso (mínimo 6 caracteres):</label><input id="u-pass" type="password" placeholder="••••••" required></div>'+
+   '<div class="occ c12" style="grid-column:span 12">Al crear la cuenta, el usuario quedará habilitado en Supabase para ingresar desde <b>login.html</b>.</div>'+
+  '</div>';
+ openM('m-usr');
+}
+$('#fusr').addEventListener('submit',async e=>{
+ e.preventDefault();const err=$('#u-err');err.textContent='';
+ const email=$('#u-mail').value.trim(),password=$('#u-pass').value;
+ if(!email||password.length<6){err.textContent='Ingresa un correo válido y una clave de al menos 6 caracteres.';return}
+ const btn=$('#u-save');btn.disabled=true;
+ try{
+  const {error}=await db.auth.signUp({email,password});
+  if(error)throw error;
+  toast('Usuario '+email+' creado exitosamente');
+  closeM();
+ }catch(ex){
+  err.textContent='Error: '+(ex.message||'no se pudo registrar el usuario');
+ }
+ btn.disabled=false;
+});
+
+/* ---------- Código de Barras ---------- */
+const C39={'0':'000110100','1':'100100001','2':'001100001','3':'101100000','4':'00010001','5':'100110000','6':'001110000','7':'000100101','8':'100100100','9':'001100100','A':'100001001','B':'001001001','C':'101001000','D':'000011001','E':'100011000','F':'001011000','G':'000001101','H':'100001100','I':'001001100','J':'000011100','K':'100000011','L':'001000011','M':'101000010','N':'000010011','O':'100010010','P':'001010010','Q':'000000111','R':'100000110','S':'001000110','T':'000010110','U':'110000001','V':'011000001','W':'111000000','X':'010010001','Y':'110010000','Z':'011010000','-':'010000101','.':'110000100',' ':'011000100','*':'010010100'};
+function barSVG(text){
+ const t='*'+String(text).toUpperCase().replace(/[^0-9A-Z\-. ]/g,'')+'*';let x=0,bars='';
+ for(const ch of t){const p=C39[ch];if(!p)continue;for(let i=0;i<9;i++){const w=p[i]==='1'?3:1;if(i%2===0)bars+='<rect x="'+x+'" y="0" width="'+w+'" height="60" fill="#111"/>';x+=w}x+=1}
+ return '<svg viewBox="0 0 '+x+' 60" preserveAspectRatio="none" role="img" aria-label="Código de barras '+esc(text)+'">'+bars+'</svg>';
+}
+const lblHTML=a=>'<div class="lbl"><div class="t">'+esc(a.nombre)+'</div><div class="s">'+esc([a.modelo,a.tamano].filter(Boolean).join(' · '))+' · '+esc(a.ubic||'sin ubicar')+'</div>'+barSVG(a.codigo)+'<div class="c">'+esc(a.codigo)+'</div></div>';
+function openBarcode(a){$('#bar-b').innerHTML=lblHTML(a);openM('m-bar')}
+function openLabels(){
+ const rows=visible();$('#t-lbls').textContent='CÓDIGOS · '+rows.length+' ETIQUETAS';
+ $('#lbls-b').innerHTML=rows.length?rows.slice(0,120).map(lblHTML).join(''):'<div class="empty" style="grid-column:1/-1"><b>No hay productos para mostrar</b></div>';
+ openM('m-lbls');
+}
+
+async function boot(){
+ initChrome();render();
+ if(!db){
+  $('#list').innerHTML='<div class="tw"><div class="empty"><b>Falta conectar Supabase</b></div></div>';
+  return;
+ }
+ if(!(await exigirSesion()))return;
+ $('#av').title='Usuario activo: '+S.email;
+ const arts=await listarProductos();if(arts)S.arts=arts;
+ const movs=await listarMovimientos();if(movs)S.movs=movs;
+ S.loaded=true;render();
+ await bloquearQuesosInicial();
+ escucharCambios(refrescar);
+}
+boot();
+</script>
+</body>
+</html>
